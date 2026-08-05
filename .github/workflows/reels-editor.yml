@@ -15,14 +15,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Show FFmpeg Version
-        run: ffmpeg -version
-
-      - name: Flip Video
+      - name: Edit Reel
         run: |
-          ffmpeg -i input.mp4 -vf hflip output.mp4
+          ffmpeg \
+          -i input.mp4 \
+          -i logo.png \
+          -i follow_banner.png \
+          -filter_complex "
+          [0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v];
+          [v][2:v]overlay=0:H-h[tmp];
+          [tmp][1:v]overlay=40:40
+          " \
+          -map 0:a? \
+          -c:v libx264 \
+          -preset medium \
+          -crf 20 \
+          -c:a aac \
+          -movflags +faststart \
+          output.mp4
 
-      - name: Upload Result
+      - name: Upload Video
         uses: actions/upload-artifact@v4
         with:
           name: edited-video
