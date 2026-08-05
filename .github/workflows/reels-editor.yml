@@ -17,3 +17,13 @@ jobs:
 
       - name: Show FFmpeg Version
         run: ffmpeg -version
+
+      - name: Flip Video
+        run: |
+          ffmpeg -i input.mp4 -vf hflip output.mp4
+
+      - name: Upload Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: edited-video
+          path: output.mp4
