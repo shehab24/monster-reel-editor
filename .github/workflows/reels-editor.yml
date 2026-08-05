@@ -25,17 +25,15 @@ jobs:
         run: |
           ffmpeg -y \
             -i input.mp4 \
-            -i full_overlay-new.png \
+            -i full-overlay.png \
             -filter_complex "
               [0:v]
               hflip,
               scale=1080:1920:force_original_aspect_ratio=increase,
-              crop=1080:1920
-              [video];
+              crop=1080:1920[video];
 
               [video][1:v]
-              overlay=0:0
-              [out]
+              overlay=0:0[out]
             " \
             -map "[out]" \
             -map 0:a? \
