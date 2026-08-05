@@ -2,6 +2,16 @@ name: Edit Reels
 
 on:
   workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Video URL"
+        required: true
+        type: string
+
+      row:
+        description: "Google Sheet Row"
+        required: false
+        type: string
 
 jobs:
   edit-video:
@@ -16,10 +26,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Verify Files
+      - name: Install Python & yt-dlp
+        run: |
+          python3 -m pip install --upgrade pip
+          pip3 install yt-dlp
+
+      - name: Verify Repository Files
         run: |
           echo "Repository Files:"
           ls -lah
+
+      - name: Download Video
+        run: |
+          echo "Downloading video..."
+          yt-dlp \
+            "${{ github.event.inputs.video_url }}" \
+            -o input.mp4
+
+      - name: Verify Download
+        run: |
+          ls -lh input.mp4
+          ffprobe input.mp4
 
       - name: Edit Reel
         run: |
@@ -38,8 +65,8 @@ jobs:
             -map "[out]" \
             -map 0:a? \
             -c:v libx264 \
-            -preset medium \
-            -crf 20 \
+            -preset veryfast \
+            -crf 22 \
             -pix_fmt yuv420p \
             -c:a aac \
             -b:a 192k \
