@@ -13,33 +13,42 @@ on:
         required: false
         type: string
 
+
 jobs:
   edit-video:
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
 
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
+
       - name: Install yt-dlp
         run: |
           python3 -m pip install --upgrade pip
           pip3 install yt-dlp
 
+
       - name: Download Video
         run: |
-          echo "Downloading..."
-          yt-dlp "${{ github.event.inputs.video_url }}" -o input.mp4
+          echo "Downloading video..."
+          yt-dlp "${{ github.event.inputs.video_url }}" \
+          -o input.mp4
+
 
       - name: Verify Download
         run: |
           ls -lh input.mp4
           ffprobe input.mp4
+
 
       - name: Edit Reel
         run: |
@@ -66,12 +75,39 @@ jobs:
             -movflags +faststart \
             output.mp4
 
+
+      - name: Check Output
+        run: |
+          ls -lh output.mp4
+          ffprobe output.mp4
+
+
+      - name: Create Google Credentials
+        run: |
+          echo "${{ secrets.GDRIVE_CREDENTIALS_BASE64 }}" | base64 -d > credentials.json
+
+
+      - name: Validate Google Credentials
+        run: |
+          python3 - <<EOF
+          import json
+
+          with open("credentials.json") as f:
+              data=json.load(f)
+
+          print("Credentials JSON OK")
+          print("Service Account:", data["client_email"])
+          EOF
+
+
       - name: Upload to Google Drive
         uses: willo32/google-drive-upload-action@v1
         with:
           target: output.mp4
-          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS_BASE64 }}
           parent_folder_id: 16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri
 
+
       - name: Done
-        run: echo "Video uploaded successfully."
+        run: |
+          echo "Video uploaded successfully."
