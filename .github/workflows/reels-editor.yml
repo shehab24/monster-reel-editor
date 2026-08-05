@@ -106,6 +106,8 @@ jobs:
           target: output.mp4
           credentials: ${{ secrets.GDRIVE_CREDENTIALS_BASE64 }}
           parent_folder_id: 16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri
+          supportsAllDrives: true
+          supportsTeamDrives: true
 
 
       - name: Done
