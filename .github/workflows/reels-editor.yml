@@ -1,0 +1,19 @@
+name: Edit Reels
+
+on:
+  workflow_dispatch:
+
+jobs:
+  edit-video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Show FFmpeg Version
+        run: ffmpeg -version
