@@ -72,8 +72,9 @@ jobs:
           ls -lh output.mp4
           ffprobe output.mp4
 
-      - name: Setup Rclone
-        uses: rclone/rclone-action-setup@v2
+      - name: Install Rclone
+        run: |
+          sudo curl https://rclone.org/install.sh | sudo bash
 
       - name: Upload to Google Drive
         run: |
@@ -85,4 +86,4 @@ jobs:
 
       - name: Done
         run: |
-          echo "Video uploaded successfully using user OAuth 5TB storage quota."
+          echo "Video uploaded successfully."
