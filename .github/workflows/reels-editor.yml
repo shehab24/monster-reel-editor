@@ -26,22 +26,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python & yt-dlp
+      - name: Install yt-dlp
         run: |
           python3 -m pip install --upgrade pip
           pip3 install yt-dlp
 
-      - name: Verify Repository Files
-        run: |
-          echo "Repository Files:"
-          ls -lah
-
       - name: Download Video
         run: |
-          echo "Downloading video..."
-          yt-dlp \
-            "${{ github.event.inputs.video_url }}" \
-            -o input.mp4
+          echo "Downloading..."
+          yt-dlp "${{ github.event.inputs.video_url }}" -o input.mp4
 
       - name: Verify Download
         run: |
@@ -73,13 +66,12 @@ jobs:
             -movflags +faststart \
             output.mp4
 
-      - name: Verify Output
-        run: |
-          ls -lh output.mp4
-          ffprobe output.mp4
-
-      - name: Upload Output
-        uses: actions/upload-artifact@v4
+      - name: Upload to Google Drive
+        uses: willo32/google-drive-upload-action@v1
         with:
-          name: edited-video
-          path: output.mp4
+          target: output.mp4
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          parent_folder_id: 16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri
+
+      - name: Done
+        run: echo "Video uploaded successfully."
