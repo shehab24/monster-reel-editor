@@ -8,29 +8,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
+      - name: Verify Files
+        run: |
+          echo "Current Directory:"
+          pwd
+          echo ""
+          echo "Repository Files:"
+          ls -lah
+
       - name: Edit Reel
         run: |
-          ffmpeg \
+          ffmpeg -y \
             -i input.mp4 \
             -i logo.png \
             -i follow_banner.png \
-            -filter_complex "
-              [0:v]hflip,
-              scale=1080:1920:force_original_aspect_ratio=increase,
-              crop=1080:1920[v];
-
-              [v][2:v]overlay=(W-w)/2:H-h[tmp];
-
-              [tmp][1:v]overlay=30:20
-            " \
-            -map 0:v \
+            -filter_complex "[0:v]hflip,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base];[base][2:v]overlay=(W-w)/2:H-h[bottom];[bottom][1:v]overlay=30:20[vout]" \
+            -map "[vout]" \
             -map 0:a? \
             -c:v libx264 \
             -preset medium \
@@ -39,6 +40,11 @@ jobs:
             -c:a aac \
             -movflags +faststart \
             output.mp4
+
+      - name: Verify Output
+        run: |
+          ls -lh output.mp4
+          ffprobe output.mp4
 
       - name: Upload Output
         uses: actions/upload-artifact@v4
