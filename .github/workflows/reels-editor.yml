@@ -22,9 +22,17 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg curl python3-pip
 
-      - name: Install yt-dlp
+      - name: Install yt-dlp and PO Token plugin
         run: |
           python3 -m pip install --upgrade yt-dlp
+          python3 -m pip install --upgrade bgutil-ytdlp-pot-provider
+
+      - name: Start PO Token Provider Server
+        run: |
+          docker run -d --rm -p 4416:4416 --name bgutil-provider brainicism/bgutil-ytdlp-pot-provider
+          # give the server a moment to come up
+          sleep 5
+          docker ps
 
       - name: Download Video via yt-dlp
         run: |
@@ -40,6 +48,7 @@ jobs:
             --no-playlist \
             --retries 5 \
             --fragment-retries 5 \
+            --extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416" \
             "$URL"
 
           if [ ! -s input.mp4 ]; then
