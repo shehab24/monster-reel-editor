@@ -27,13 +27,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg & Node.js
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg nodejs
 
-      - name: Install yt-dlp
+      - name: Install Deno & yt-dlp
         run: |
+          # Install Deno JS runtime to solve YouTube n challenge / signature scripts
+          curl -fsSL https://deno.land/x/install/install.sh | sh
+          echo "/home/runner/.deno/bin" >> $GITHUB_PATH
+
           python3 -m pip install --upgrade pip
           pip3 install --upgrade yt-dlp
 
@@ -46,9 +50,10 @@ jobs:
           ${{ secrets.YOUTUBE_COOKIES }}
           EOF
 
-          # Download using cookies to bypass HTTP 429 and bot checks
+          # Download using cookies + JS runtimes to solve YouTube challenges
           yt-dlp "${{ github.event.inputs.video_url }}" \
             --cookies cookies.txt \
+            --js-runtimes deno,node \
             -o input.mp4
 
           # Delete cookies file immediately after download for security
