@@ -21,42 +21,57 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies & Deno
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg nodejs curl
-          
-          # Install Deno JS runtime
-          curl -fsSL https://deno.land/x/install/install.sh | sh
-          echo "/home/runner/.deno/bin" >> $GITHUB_PATH
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl
 
-          python3 -m pip install --upgrade --no-cache-dir pip yt-dlp
-
-      - name: Download Video
-        env:
-          YOUTUBE_COOKIES_DATA: ${{ secrets.YOUTUBE_COOKIES }}
+      - name: Download Video Stream
         run: |
-          rm -f input.mp4 input_temp*
-          
-          printf "%s\n" "$YOUTUBE_COOKIES_DATA" > cookies.txt
+          rm -f input.mp4
 
-          if [ ! -s cookies.txt ]; then
-            echo "ERROR: YOUTUBE_COOKIES secret is empty or missing in GitHub Repository Settings!"
-            exit 1
+          URL="${{ github.event.inputs.video_url }}"
+          echo "Processing URL: $URL"
+
+          # 1. Try downloading via Cobalt API
+          echo "Attempting download via Cobalt API..."
+          COBALT_RES=$(curl -s -X POST "https://api.cobalt.tools/api/json" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+            -d "{\"url\": \"$URL\", \"videoQuality\": \"max\"}")
+
+          STREAM_URL=$(echo "$COBALT_RES" | jq -r '.url // empty')
+
+          if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
+            echo "Direct stream link obtained from Cobalt."
+            curl -L "$STREAM_URL" -o input.mp4
+          else
+            echo "Cobalt response: $COBALT_RES"
+            echo "Cobalt failed or rate-limited. Trying fallback API..."
+            
+            # 2. Fallback API (Piped instance API)
+            VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
+            PIPED_RES=$(curl -s "https://pipedapi.kavin.rocks/streams/$VIDEO_ID")
+            STREAM_URL=$(echo "$PIPED_RES" | jq -r '.videoStreams[] | select(.mimeType=="video/mp4" and .quality!="LBL") | .url' | head -n 1)
+
+            if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
+              echo "Direct stream link obtained from Piped API."
+              curl -L "$STREAM_URL" -o input.mp4
+            else
+              echo "Failed to fetch stream link from fallback sources."
+              exit 1
+            fi
           fi
 
-          echo "Downloading video using cookies and JS challenge solvers..."
-          yt-dlp "${{ github.event.inputs.video_url }}" \
-            --cookies cookies.txt \
-            --js-runtimes deno node \
-            --no-playlist \
-            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-            --merge-output-format mp4 \
-            -o "input_temp.%(ext)s"
-
-          mv input_temp.mp4 input.mp4
-
-          rm -f cookies.txt
+      - name: Verify Video
+        run: |
+          if [ ! -s input.mp4 ]; then
+            echo "Downloaded video file is empty!"
+            exit 1
+          fi
+          echo "Video downloaded successfully. Size:"
+          ls -lh input.mp4
 
       - name: Edit Reel
         run: |
