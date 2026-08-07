@@ -1,110 +1,177 @@
 name: Edit Reels
 
+
+
 on:
+
   workflow_dispatch:
+
     inputs:
+
       video_url:
+
         description: "Video URL"
+
         required: true
+
         type: string
+
+
 
       row:
+
         description: "Google Sheet Row"
+
         required: false
+
         type: string
 
+
+
 jobs:
+
   edit-video:
+
     runs-on: ubuntu-latest
 
+
+
     steps:
+
       - name: Checkout Repository
+
         uses: actions/checkout@v4
 
+
+
       - name: Install FFmpeg
+
         run: |
+
           sudo apt-get update
+
           sudo apt-get install -y ffmpeg
 
+
+
       - name: Install yt-dlp
+
         run: |
+
           python3 -m pip install --upgrade pip
+
           pip3 install yt-dlp
 
+
+
       - name: Download Video
+
         run: |
+
           echo "Downloading video..."
+
           yt-dlp "${{ github.event.inputs.video_url }}" \
+
           -o input.mp4
 
+
+
       - name: Verify Download
+
         run: |
+
           ls -lh input.mp4
+
           ffprobe input.mp4
 
+
+
       - name: Edit Reel
+
         run: |
-          TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
-          ROW_ID="${{ github.event.inputs.row }}"
-          
-          if [ -n "$ROW_ID" ]; then
-            FILENAME="reel_row_${ROW_ID}_${TIMESTAMP}.mp4"
-          else
-            FILENAME="reel_${TIMESTAMP}.mp4"
-          fi
-          
-          echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
           ffmpeg -y \
+
             -i input.mp4 \
+
             -i full-overlay.png \
+
             -filter_complex "
+
               [0:v]
+
               hflip,
+
               scale=1080:1920:force_original_aspect_ratio=increase,
+
               crop=1080:1920[video];
 
+
+
               [video][1:v]
+
               overlay=0:0[out]
+
             " \
+
             -map "[out]" \
+
             -map 0:a? \
+
             -c:v libx264 \
+
             -preset veryfast \
+
             -crf 22 \
+
             -pix_fmt yuv420p \
+
             -c:a aac \
+
             -b:a 192k \
+
             -movflags +faststart \
-            "$FILENAME"
+
+            output.mp4
+
+
 
       - name: Check Output
+
         run: |
-          ls -lh "$FINAL_FILENAME"
-          ffprobe "$FINAL_FILENAME"
+
+          ls -lh output.mp4
+
+          ffprobe output.mp4
+
+
 
       - name: Install Rclone
+
         run: |
+
           sudo curl https://rclone.org/install.sh | sudo bash
 
+
+
       - name: Upload to Google Drive
+
         run: |
-          rclone copy "$FINAL_FILENAME" :drive: \
+
+          rclone copy output.mp4 :drive: \
+
             --drive-client-id="${{ secrets.GDRIVE_CLIENT_ID }}" \
+
             --drive-client-secret="${{ secrets.GDRIVE_CLIENT_SECRET }}" \
+
             --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
+
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
-      - name: Update Zapier (Mark Status Uploaded)
-        if: ${{ inputs.row != '' }}
-        run: |
-          curl -X POST "${{ secrets.ZAPIER_COMPLETED_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "row": "${{ inputs.row }}",
-              "status": "Uploaded"
-            }'
+
 
       - name: Done
+
         run: |
-          echo "Video uploaded successfully with dynamic filename: $FINAL_FILENAME"
+
+          echo "Video uploaded successfully."
