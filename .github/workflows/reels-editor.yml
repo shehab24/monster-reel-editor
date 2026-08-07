@@ -29,7 +29,7 @@ jobs:
 
       - name: Download Video
         run: |
-          rm -f input.mp4
+          rm -f input.mp4 video_temp.mp4 audio_temp.m4a
           URL="${{ github.event.inputs.video_url }}"
           echo "Processing URL: $URL"
 
@@ -49,22 +49,32 @@ jobs:
               --header "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
               --header "X-RapidAPI-Host: yt-api.p.rapidapi.com")
 
-            # Try to grab format containing both audio and video
-            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4" and .hasAudio==true and .hasVideo==true) | .url' | head -n 1)
+            # 1. Try fetching a progressive stream containing both video & audio
+            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.hasAudio==true and .hasVideo==true) | .url' | head -n 1)
 
-            # Fallback to general MP4 if needed
-            if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
-              STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4") | .url' | head -n 1)
+            if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
+              echo "Found combined video+audio stream. Downloading..."
+              curl -L "$STREAM_URL" -o input.mp4
+            else
+              echo "No single progressive stream found. Fetching separate adaptive video and audio streams..."
+              
+              VIDEO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.hasVideo==true) | .url' | head -n 1)
+              AUDIO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.hasAudio==true) | .url' | head -n 1)
+
+              if [ -z "$VIDEO_URL" ] || [ "$VIDEO_URL" == "null" ] || [ -z "$AUDIO_URL" ] || [ "$AUDIO_URL" == "null" ]; then
+                echo "API Response: $RESPONSE"
+                echo "ERROR: Could not find valid video/audio stream URLs in RapidAPI response."
+                exit 1
+              fi
+
+              echo "Downloading separate video and audio streams..."
+              curl -L "$VIDEO_URL" -o video_temp.mp4
+              curl -L "$AUDIO_URL" -o audio_temp.m4a
+
+              echo "Merging video and audio streams using FFmpeg..."
+              ffmpeg -y -i video_temp.mp4 -i audio_temp.m4a -c:v copy -c:a aac input.mp4
+              rm -f video_temp.mp4 audio_temp.m4a
             fi
-
-            if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
-              echo "API Response: $RESPONSE"
-              echo "ERROR: Failed to retrieve download link from RapidAPI."
-              exit 1
-            fi
-
-            echo "Downloading video stream..."
-            curl -L "$STREAM_URL" -o input.mp4
 
           else
             echo "Non-YouTube URL detected (Facebook Reels, etc.). Using direct yt-dlp..."
@@ -79,10 +89,10 @@ jobs:
       - name: Verify Download
         run: |
           if [ ! -s input.mp4 ]; then
-            echo "ERROR: Downloaded input.mp4 is empty!"
+            echo "ERROR: Downloaded input.mp4 is empty or missing!"
             exit 1
           fi
-          echo "Video downloaded successfully. Details:"
+          echo "Video successfully prepared. File details:"
           ls -lh input.mp4
 
       - name: Edit Reel
@@ -125,4 +135,4 @@ jobs:
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
       - name: Done
-        run: echo "Video successfully processed and uploaded!"
+        run: echo "Video successfully processed, edited, and uploaded to Google Drive!"
