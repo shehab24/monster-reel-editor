@@ -21,10 +21,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install Dependencies & Deno
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg nodejs
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg nodejs curl
+          
+          # Install Deno JS runtime (primary solver for YouTube signature challenges)
+          curl -fsSL https://deno.land/x/install/install.sh | sh
+          echo "/home/runner/.deno/bin" >> $GITHUB_PATH
+
           python3 -m pip install --upgrade --no-cache-dir pip yt-dlp
 
       - name: Download Video
@@ -33,20 +38,18 @@ jobs:
         run: |
           rm -f input.mp4
           
-          # Write cookies securely from env variable
+          # Write cookies securely
           printf "%s\n" "$YOUTUBE_COOKIES_DATA" > cookies.txt
 
-          # Check if cookie file exists and is not empty
           if [ ! -s cookies.txt ]; then
             echo "ERROR: YOUTUBE_COOKIES secret is empty or missing in GitHub Repository Settings!"
             exit 1
           fi
 
-          echo "Downloading video using cookies..."
+          echo "Downloading video using cookies and JS challenge solvers..."
           yt-dlp "${{ github.event.inputs.video_url }}" \
             --cookies cookies.txt \
-            --js-runtimes node \
-            --extractor-args "youtube:player_client=ios,android,web" \
+            --js-runtimes deno node \
             --force-overwrites \
             -o input.mp4
 
