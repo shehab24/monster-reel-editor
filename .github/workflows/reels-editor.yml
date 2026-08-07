@@ -1,4 +1,5 @@
 name: Edit Reels
+
 on:
   workflow_dispatch:
     inputs:
@@ -6,13 +7,16 @@ on:
         description: "Video URL"
         required: true
         type: string
+
 concurrency:
   group: reels-processing
   cancel-in-progress: false
+
 jobs:
   edit-video:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -20,43 +24,65 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg curl python3-pip
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl python3-pip
+          pip3 install --upgrade --no-cache-dir yt-dlp
 
-      - name: Install yt-dlp and PO Token plugin
-        run: |
-          python3 -m pip install --upgrade yt-dlp
-          python3 -m pip install --upgrade bgutil-ytdlp-pot-provider
-
-      - name: Start PO Token Provider Server
-        run: |
-          docker run -d --rm -p 4416:4416 --name bgutil-provider brainicism/bgutil-ytdlp-pot-provider
-          # give the server a moment to come up
-          sleep 5
-          docker ps
-
-      - name: Download Video via yt-dlp
+      - name: Download Video
         run: |
           rm -f input.mp4
           URL="${{ github.event.inputs.video_url }}"
+          echo "Processing URL: $URL"
 
-          echo "Downloading: $URL"
+          # Check if the URL is from YouTube
+          if [[ "$URL" =~ youtube\.com|youtu\.be ]]; then
+            echo "YouTube URL detected. Using RapidAPI..."
 
-          yt-dlp \
-            -f "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/best" \
-            --merge-output-format mp4 \
-            -o input.mp4 \
-            --no-playlist \
-            --retries 5 \
-            --fragment-retries 5 \
-            --extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416" \
-            "$URL"
+            # Extract 11-character Video ID
+            VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
+            echo "Extracted Video ID: $VIDEO_ID"
 
-          if [ ! -s input.mp4 ]; then
-            echo "ERROR: yt-dlp failed to download the video."
-            exit 1
+            if [ -z "$VIDEO_ID" ]; then
+              echo "ERROR: Could not parse YouTube Video ID from URL."
+              exit 1
+            fi
+
+            RESPONSE=$(curl --silent --location --request GET "https://yt-api.p.rapidapi.com/dl?id=$VIDEO_ID" \
+              --header "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
+              --header "X-RapidAPI-Host: yt-api.p.rapidapi.com")
+
+            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4" and .hasAudio==true and .hasVideo==true) | .url' | head -n 1)
+
+            if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
+              STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4") | .url' | head -n 1)
+            fi
+
+            if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
+              echo "API Response: $RESPONSE"
+              echo "ERROR: Failed to retrieve download link from RapidAPI."
+              exit 1
+            fi
+
+            echo "Downloading YouTube video stream..."
+            curl -L "$STREAM_URL" -o input.mp4
+
+          else
+            echo "Non-YouTube URL detected (e.g., Facebook Reels). Using direct yt-dlp..."
+            
+            yt-dlp "$URL" \
+              --no-playlist \
+              -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+              --merge-output-format mp4 \
+              --force-overwrites \
+              -o input.mp4
           fi
 
-          echo "Video downloaded successfully. File size:"
+      - name: Verify Download
+        run: |
+          if [ ! -s input.mp4 ]; then
+            echo "ERROR: Downloaded input.mp4 is empty!"
+            exit 1
+          fi
+          echo "Video successfully downloaded. Details:"
           ls -lh input.mp4
 
       - name: Edit Reel
@@ -64,6 +90,7 @@ jobs:
           TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
+
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
@@ -72,6 +99,7 @@ jobs:
               hflip,
               scale=1080:1920:force_original_aspect_ratio=increase,
               crop=1080:1920[video];
+
               [video][1:v]
               overlay=0:0[out]
             " \
@@ -89,7 +117,7 @@ jobs:
       - name: Install Rclone and Upload
         run: |
           sudo curl -s https://rclone.org/install.sh | sudo bash
-
+          
           rclone copy "$FINAL_FILENAME" :drive: \
             --drive-client-id="${{ secrets.GDRIVE_CLIENT_ID }}" \
             --drive-client-secret="${{ secrets.GDRIVE_CLIENT_SECRET }}" \
