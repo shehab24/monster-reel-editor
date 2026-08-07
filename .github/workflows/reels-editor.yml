@@ -29,64 +29,54 @@ jobs:
 
       - name: Download Video
         run: |
-          rm -f input.mp4 video_temp.mp4 audio_temp.m4a
+          rm -f input.mp4
           URL="${{ github.event.inputs.video_url }}"
           echo "Processing URL: $URL"
 
-          # Route YouTube URLs through Invidious Stream Proxies
           if [[ "$URL" =~ youtube\.com|youtu\.be ]]; then
-            echo "YouTube URL detected."
+            echo "YouTube URL detected. Rotating through proxy list..."
 
-            VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
-            echo "Extracted Video ID: $VIDEO_ID"
-
-            if [ -z "$VIDEO_ID" ]; then
-              echo "ERROR: Could not parse YouTube Video ID from URL."
+            if [ -z "${{ secrets.PROXY_LIST }}" ]; then
+              echo "ERROR: PROXY_LIST secret is missing or empty!"
               exit 1
             fi
 
-            # Public Invidious instances that proxy video stream data directly
-            INSTANCES=(
-              "https://inv.tux.pizza"
-              "https://invidious.nerdvpn.de"
-              "https://inv.ing.network"
-              "https://invidious.drgns.space"
-              "https://invidious.privacydev.net"
-              "https://yt.artemislena.eu"
-            )
+            # Read PROXY_LIST secret and shuffle the proxies randomly
+            mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
 
             DOWNLOAD_SUCCESS=false
 
-            for INSTANCE in "${INSTANCES[@]}"; do
-              echo "Trying proxy instance: $INSTANCE ..."
+            for PROXY in "${PROXIES[@]}"; do
+              # Clean carriage returns/spaces
+              PROXY=$(echo "$PROXY" | tr -d '\r' | xargs)
+              echo "Attempting download using proxy: $(echo "$PROXY" | sed -E 's/:([^@]+)@/:***@/')"
 
-              # Try 720p (itag 22) first, then 360p/480p (itag 18)
-              for ITAG in 22 18; do
-                STREAM_URL="${INSTANCE}/latest_version?id=${VIDEO_ID}&itag=${ITAG}&local=true"
-                echo "Fetching stream (itag $ITAG) from $INSTANCE ..."
+              yt-dlp "$URL" \
+                --proxy "$PROXY" \
+                --no-playlist \
+                -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+                --merge-output-format mp4 \
+                --force-overwrites \
+                --socket-timeout 15 \
+                -o input.mp4 || true
 
-                curl -s -L --max-time 45 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$STREAM_URL" -o input.mp4
-
-                # Verify file exists, is over 300KB, and has valid video stream using ffprobe
-                if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
-                  if ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprintwrappers=1:nokey=1 input.mp4 > /dev/null 2>&1; then
-                    echo "SUCCESS: Valid MP4 video downloaded from $INSTANCE (itag $ITAG)!"
-                    DOWNLOAD_SUCCESS=true
-                    break 2
-                  fi
-                fi
-                echo "Stream from $INSTANCE (itag $ITAG) was invalid or rate-limited. Trying next..."
+              if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
+                echo "SUCCESS: Video downloaded successfully via proxy!"
+                DOWNLOAD_SUCCESS=true
+                break
+              else
+                echo "Proxy attempt failed or timed out. Trying next proxy..."
                 rm -f input.mp4
-              done
+              fi
             done
 
             if [ "$DOWNLOAD_SUCCESS" = false ]; then
-              echo "ERROR: All proxy instances failed to return a valid video stream."
+              echo "ERROR: All proxies failed to download the YouTube video."
               exit 1
             fi
 
           else
-            echo "Non-YouTube URL detected (Facebook Reels, etc.). Using direct yt-dlp..."
+            echo "Non-YouTube URL detected (Facebook Reels, etc.). Downloading directly..."
             yt-dlp "$URL" \
               --no-playlist \
               -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
