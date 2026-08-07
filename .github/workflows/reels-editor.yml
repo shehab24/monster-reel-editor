@@ -32,12 +32,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg nodejs
 
-      - name: Install Deno & yt-dlp
+      - name: Install yt-dlp
         run: |
-          # Install Deno JS runtime to solve YouTube n challenge / signature scripts
-          curl -fsSL https://deno.land/x/install/install.sh | sh
-          echo "/home/runner/.deno/bin" >> $GITHUB_PATH
-
           python3 -m pip install --upgrade pip
           pip3 install --upgrade yt-dlp
 
@@ -53,10 +49,11 @@ jobs:
           ${{ secrets.YOUTUBE_COOKIES }}
           EOF
 
-          # Force download and overwrite
+          # Download using cookies + fixed JS runtime syntax
           yt-dlp "${{ github.event.inputs.video_url }}" \
             --cookies cookies.txt \
-            --js-runtimes deno,node \
+            --js-runtimes node \
+            --extractor-args "youtube:player_client=ios,android,web" \
             --force-overwrites \
             -o input.mp4
 
