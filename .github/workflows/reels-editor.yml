@@ -100,14 +100,16 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
+          # Scale to slightly larger height and crop with an upward offset (y=120)
+          # to push the original bottom captions down cleanly behind the overlay shape
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
             -filter_complex "
               [0:v]
               hflip,
-              scale=1080:1920:force_original_aspect_ratio=increase,
-              crop=1080:1920[video];
+              scale=1080:2040:force_original_aspect_ratio=increase,
+              crop=1080:1920:0:120[video];
 
               [video][1:v]
               overlay=0:0[out]
