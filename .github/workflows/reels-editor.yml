@@ -44,6 +44,17 @@ jobs:
 
       - name: Edit Reel
         run: |
+          TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+          ROW_ID="${{ github.event.inputs.row }}"
+          
+          if [ -n "$ROW_ID" ]; then
+            FILENAME="reel_row_${ROW_ID}_${TIMESTAMP}.mp4"
+          else
+            FILENAME="reel_${TIMESTAMP}.mp4"
+          fi
+          
+          echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
+
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
@@ -65,12 +76,12 @@ jobs:
             -c:a aac \
             -b:a 192k \
             -movflags +faststart \
-            output.mp4
+            "$FILENAME"
 
       - name: Check Output
         run: |
-          ls -lh output.mp4
-          ffprobe output.mp4
+          ls -lh "$FINAL_FILENAME"
+          ffprobe "$FINAL_FILENAME"
 
       - name: Install Rclone
         run: |
@@ -78,12 +89,22 @@ jobs:
 
       - name: Upload to Google Drive
         run: |
-          rclone copy output.mp4 :drive: \
+          rclone copy "$FINAL_FILENAME" :drive: \
             --drive-client-id="${{ secrets.GDRIVE_CLIENT_ID }}" \
             --drive-client-secret="${{ secrets.GDRIVE_CLIENT_SECRET }}" \
             --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
+      - name: Update Zapier (Mark Status Uploaded)
+        if: ${{ inputs.row != '' }}
+        run: |
+          curl -X POST "${{ secrets.ZAPIER_COMPLETED_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "row": "${{ inputs.row }}",
+              "status": "Uploaded"
+            }'
+
       - name: Done
         run: |
-          echo "Video uploaded successfully."
+          echo "Video uploaded successfully with dynamic filename: $FINAL_FILENAME"
