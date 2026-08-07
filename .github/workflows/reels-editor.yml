@@ -43,17 +43,21 @@ jobs:
 
       - name: Download Video
         run: |
-          echo "Downloading video..."
+          echo "Cleaning up existing input video..."
+          rm -f input.mp4
+
+          echo "Downloading new video..."
           
           # Pass cookies secret to cookies.txt securely
           cat << 'EOF' > cookies.txt
           ${{ secrets.YOUTUBE_COOKIES }}
           EOF
 
-          # Download using cookies + JS runtimes to solve YouTube challenges
+          # Force download and overwrite
           yt-dlp "${{ github.event.inputs.video_url }}" \
             --cookies cookies.txt \
             --js-runtimes deno,node \
+            --force-overwrites \
             -o input.mp4
 
           # Delete cookies file immediately after download for security
