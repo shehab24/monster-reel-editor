@@ -49,31 +49,26 @@ jobs:
               --header "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
               --header "X-RapidAPI-Host: yt-api.p.rapidapi.com")
 
-            # 1. Try fetching a progressive stream containing both video & audio
-            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.hasAudio==true and .hasVideo==true) | .url' | head -n 1)
+            # Try adaptive streams first for highest quality (1080p)
+            VIDEO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.mimeType | contains("video/mp4")) | .url' | head -n 1)
+            AUDIO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.mimeType | contains("audio/mp4")) | .url' | head -n 1)
+            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.mimeType | contains("video/mp4")) | .url' | head -n 1)
 
-            if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
-              echo "Found combined video+audio stream. Downloading..."
-              curl -L "$STREAM_URL" -o input.mp4
-            else
-              echo "No single progressive stream found. Fetching separate adaptive video and audio streams..."
-              
-              VIDEO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.hasVideo==true) | .url' | head -n 1)
-              AUDIO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.hasAudio==true) | .url' | head -n 1)
-
-              if [ -z "$VIDEO_URL" ] || [ "$VIDEO_URL" == "null" ] || [ -z "$AUDIO_URL" ] || [ "$AUDIO_URL" == "null" ]; then
-                echo "API Response: $RESPONSE"
-                echo "ERROR: Could not find valid video/audio stream URLs in RapidAPI response."
-                exit 1
-              fi
-
-              echo "Downloading separate video and audio streams..."
+            if [ -n "$VIDEO_URL" ] && [ "$VIDEO_URL" != "null" ] && [ -n "$AUDIO_URL" ] && [ "$AUDIO_URL" != "null" ]; then
+              echo "Downloading high-quality video and audio streams..."
               curl -L "$VIDEO_URL" -o video_temp.mp4
               curl -L "$AUDIO_URL" -o audio_temp.m4a
 
-              echo "Merging video and audio streams using FFmpeg..."
+              echo "Merging streams with FFmpeg..."
               ffmpeg -y -i video_temp.mp4 -i audio_temp.m4a -c:v copy -c:a aac input.mp4
               rm -f video_temp.mp4 audio_temp.m4a
+            elif [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
+              echo "Downloading single progressive MP4 stream..."
+              curl -L "$STREAM_URL" -o input.mp4
+            else
+              echo "API Response: $RESPONSE"
+              echo "ERROR: Could not find valid video/audio stream URLs in RapidAPI response."
+              exit 1
             fi
 
           else
