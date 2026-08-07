@@ -33,11 +33,10 @@ jobs:
           URL="${{ github.event.inputs.video_url }}"
           echo "Processing URL: $URL"
 
-          # Check if the URL is from YouTube
+          # Route YouTube URLs through RapidAPI
           if [[ "$URL" =~ youtube\.com|youtu\.be ]]; then
             echo "YouTube URL detected. Using RapidAPI..."
 
-            # Extract 11-character Video ID
             VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
             echo "Extracted Video ID: $VIDEO_ID"
 
@@ -50,8 +49,10 @@ jobs:
               --header "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
               --header "X-RapidAPI-Host: yt-api.p.rapidapi.com")
 
+            # Try to grab format containing both audio and video
             STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4" and .hasAudio==true and .hasVideo==true) | .url' | head -n 1)
 
+            # Fallback to general MP4 if needed
             if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
               STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.container=="mp4") | .url' | head -n 1)
             fi
@@ -62,12 +63,11 @@ jobs:
               exit 1
             fi
 
-            echo "Downloading YouTube video stream..."
+            echo "Downloading video stream..."
             curl -L "$STREAM_URL" -o input.mp4
 
           else
-            echo "Non-YouTube URL detected (e.g., Facebook Reels). Using direct yt-dlp..."
-            
+            echo "Non-YouTube URL detected (Facebook Reels, etc.). Using direct yt-dlp..."
             yt-dlp "$URL" \
               --no-playlist \
               -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
@@ -82,7 +82,7 @@ jobs:
             echo "ERROR: Downloaded input.mp4 is empty!"
             exit 1
           fi
-          echo "Video successfully downloaded. Details:"
+          echo "Video downloaded successfully. Details:"
           ls -lh input.mp4
 
       - name: Edit Reel
