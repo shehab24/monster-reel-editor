@@ -8,7 +8,6 @@ on:
         required: true
         type: string
 
-# Prevent queue congestion
 concurrency:
   group: reels-processing
   cancel-in-progress: false
@@ -22,7 +21,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Fast non-interactive package install
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -33,12 +31,10 @@ jobs:
         run: |
           rm -f input.mp4
           
-          # Write cookies secret
           cat << 'EOF' > cookies.txt
           ${{ secrets.YOUTUBE_COOKIES }}
           EOF
 
-          # Fast download with minimal log overhead
           yt-dlp "${{ github.event.inputs.video_url }}" \
             --cookies cookies.txt \
             --js-runtimes node \
@@ -55,7 +51,6 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # High-speed FFmpeg processing using -preset ultrafast
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
@@ -79,7 +74,7 @@ jobs:
             -movflags +faststart \
             "$FILENAME"
 
-      - name: Install Rclone & Upload to Google Drive
+      - name: Install Rclone and Upload
         run: |
           sudo curl -s https://rclone.org/install.sh | sudo bash
           
@@ -90,4 +85,4 @@ jobs:
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
       - name: Done
-        run: echo "Done! Dynamic file uploaded: $FINAL_FILENAME"
+        run: echo "Video successfully processed and uploaded!"
