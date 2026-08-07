@@ -21,7 +21,7 @@ concurrency:
 jobs:
   edit-video:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # Prevents hanging runs from blocking the queue
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
@@ -32,22 +32,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Deno & yt-dlp
+      - name: Install yt-dlp
         run: |
-          # Install Deno as JS engine for yt-dlp to solve YouTube anti-bot challenges
-          curl -fsSL https://deno.land/x/install/install.sh | sh
-          echo "/home/runner/.deno/bin" >> $GITHUB_PATH
-
           python3 -m pip install --upgrade pip
           pip3 install --upgrade yt-dlp
 
       - name: Download Video
         run: |
           echo "Downloading video..."
-          # Spoof iOS/Android player client to bypass YouTube datacenter IP blocking
+          
+          # Pass cookies secret to cookies.txt securely
+          cat << 'EOF' > cookies.txt
+          ${{ secrets.YOUTUBE_COOKIES }}
+          EOF
+
+          # Download using cookies to bypass HTTP 429 and bot checks
           yt-dlp "${{ github.event.inputs.video_url }}" \
-            --extractor-args "youtube:player_client=ios,android" \
+            --cookies cookies.txt \
             -o input.mp4
+
+          # Delete cookies file immediately after download for security
+          rm -f cookies.txt
 
       - name: Verify Download
         run: |
@@ -107,16 +112,6 @@ jobs:
             --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
-      - name: Update Zapier (Mark Status Uploaded)
-        if: ${{ inputs.row != '' }}
-        run: |
-          curl -X POST "${{ secrets.ZAPIER_COMPLETED_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "row": "${{ inputs.row }}",
-              "status": "Uploaded"
-            }'
-
       - name: Done
         run: |
-          echo "Video processed and uploaded successfully!"
+          echo "Video processed and uploaded to Google Drive successfully!"
