@@ -33,6 +33,8 @@ jobs:
           URL="${{ github.event.inputs.video_url }}"
           echo "Processing URL: $URL"
 
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
           # Route YouTube URLs through RapidAPI
           if [[ "$URL" =~ youtube\.com|youtu\.be ]]; then
             echo "YouTube URL detected. Using RapidAPI..."
@@ -45,26 +47,26 @@ jobs:
               exit 1
             fi
 
-            RESPONSE=$(curl --silent --location --request GET "https://yt-api.p.rapidapi.com/dl?id=$VIDEO_ID" \
-              --header "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
-              --header "X-RapidAPI-Host: yt-api.p.rapidapi.com")
+            RESPONSE=$(curl -s -L "https://yt-api.p.rapidapi.com/dl?id=$VIDEO_ID" \
+              -H "X-RapidAPI-Key: ${{ secrets.RAPIDAPI_KEY }}" \
+              -H "X-RapidAPI-Host: yt-api.p.rapidapi.com")
 
-            # Try adaptive streams first for highest quality (1080p)
-            VIDEO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.mimeType | contains("video/mp4")) | .url' | head -n 1)
-            AUDIO_URL=$(echo "$RESPONSE" | jq -r '.adaptiveFormats[]? | select(.mimeType | contains("audio/mp4")) | .url' | head -n 1)
-            STREAM_URL=$(echo "$RESPONSE" | jq -r '.formats[]? | select(.mimeType | contains("video/mp4")) | .url' | head -n 1)
+            # Extract highest quality MP4 video and audio URLs using jq
+            VIDEO_URL=$(echo "$RESPONSE" | jq -r '[.adaptiveFormats[]? | select(.mimeType | contains("video/mp4"))][0].url // empty')
+            AUDIO_URL=$(echo "$RESPONSE" | jq -r '[.adaptiveFormats[]? | select(.mimeType | contains("audio/mp4"))][0].url // empty')
+            STREAM_URL=$(echo "$RESPONSE" | jq -r '[.formats[]? | select(.mimeType | contains("video/mp4"))][0].url // empty')
 
             if [ -n "$VIDEO_URL" ] && [ "$VIDEO_URL" != "null" ] && [ -n "$AUDIO_URL" ] && [ "$AUDIO_URL" != "null" ]; then
-              echo "Downloading high-quality video and audio streams..."
-              curl -L "$VIDEO_URL" -o video_temp.mp4
-              curl -L "$AUDIO_URL" -o audio_temp.m4a
+              echo "Downloading high-quality video and audio streams with Browser User-Agent..."
+              curl -s -L -A "$UA" "$VIDEO_URL" -o video_temp.mp4
+              curl -s -L -A "$UA" "$AUDIO_URL" -o audio_temp.m4a
 
               echo "Merging streams with FFmpeg..."
               ffmpeg -y -i video_temp.mp4 -i audio_temp.m4a -c:v copy -c:a aac input.mp4
               rm -f video_temp.mp4 audio_temp.m4a
             elif [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
-              echo "Downloading single progressive MP4 stream..."
-              curl -L "$STREAM_URL" -o input.mp4
+              echo "Downloading single progressive MP4 stream with Browser User-Agent..."
+              curl -s -L -A "$UA" "$STREAM_URL" -o input.mp4
             else
               echo "API Response: $RESPONSE"
               echo "ERROR: Could not find valid video/audio stream URLs in RapidAPI response."
