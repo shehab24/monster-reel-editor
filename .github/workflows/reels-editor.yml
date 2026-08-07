@@ -24,32 +24,47 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg curl python3-pip
-          pip3 install --upgrade --no-cache-dir yt-dlp
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl
 
-      - name: Download Video Stream
+      - name: Download Video via Invidious API
         run: |
           rm -f input.mp4
-          
           URL="${{ github.event.inputs.video_url }}"
-          echo "Downloading video: $URL"
+          
+          # Extract 11-character YouTube Video ID
+          VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
+          echo "Extracted Video ID: $VIDEO_ID"
 
-          # Use YouTube TV HTML5 client extractor (bypasses bot checks & cookies)
-          yt-dlp "$URL" \
-            --extractor-args "youtube:player_client=tvhtml5,tv" \
-            --no-playlist \
-            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-            --merge-output-format mp4 \
-            --force-overwrites \
-            -o input.mp4
+          if [ -z "$VIDEO_ID" ]; then
+            echo "Error: Could not extract Video ID from URL."
+            exit 1
+          fi
 
-      - name: Verify Download
+          # 1. Primary Invidious Instance
+          echo "Fetching stream URL from Invidious (Primary)..."
+          STREAM_URL=$(curl -s "https://inv.tux.pizza/api/v1/videos/$VIDEO_ID" | jq -r '.formatStreams[] | select(.container=="mp4") | .url' | head -n 1)
+
+          # 2. Fallback Invidious Instance if primary fails
+          if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
+            echo "Primary instance busy. Trying secondary instance..."
+            STREAM_URL=$(curl -s "https://invidious.nerdvpn.de/api/v1/videos/$VIDEO_ID" | jq -r '.formatStreams[] | select(.container=="mp4") | .url' | head -n 1)
+          fi
+
+          if [ -z "$STREAM_URL" ] || [ "$STREAM_URL" == "null" ]; then
+            echo "ERROR: Failed to retrieve video stream URL from Invidious instances."
+            exit 1
+          fi
+
+          echo "Downloading video stream directly..."
+          curl -L "$STREAM_URL" -o input.mp4
+
+      - name: Verify Video Download
         run: |
           if [ ! -s input.mp4 ]; then
             echo "Downloaded video file is empty!"
             exit 1
           fi
-          echo "Video downloaded successfully. Size:"
+          echo "Video downloaded successfully. File size:"
           ls -lh input.mp4
 
       - name: Edit Reel
