@@ -26,7 +26,7 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg nodejs curl
           
-          # Install Deno JS runtime (primary solver for YouTube signature challenges)
+          # Install Deno JS runtime
           curl -fsSL https://deno.land/x/install/install.sh | sh
           echo "/home/runner/.deno/bin" >> $GITHUB_PATH
 
@@ -36,9 +36,8 @@ jobs:
         env:
           YOUTUBE_COOKIES_DATA: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
-          rm -f input.mp4
+          rm -f input.mp4 input.*
           
-          # Write cookies securely
           printf "%s\n" "$YOUTUBE_COOKIES_DATA" > cookies.txt
 
           if [ ! -s cookies.txt ]; then
@@ -51,6 +50,8 @@ jobs:
             --cookies cookies.txt \
             --js-runtimes deno node \
             --force-overwrites \
+            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --merge-output-format mp4 \
             -o input.mp4
 
           rm -f cookies.txt
