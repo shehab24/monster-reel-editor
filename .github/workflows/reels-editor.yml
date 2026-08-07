@@ -24,47 +24,26 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg curl python3-pip
+          pip3 install --upgrade --no-cache-dir yt-dlp
 
       - name: Download Video Stream
         run: |
           rm -f input.mp4
-
+          
           URL="${{ github.event.inputs.video_url }}"
-          echo "Processing URL: $URL"
+          echo "Downloading video: $URL"
 
-          # 1. Try downloading via Cobalt API
-          echo "Attempting download via Cobalt API..."
-          COBALT_RES=$(curl -s -X POST "https://api.cobalt.tools/api/json" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
-            -d "{\"url\": \"$URL\", \"videoQuality\": \"max\"}")
+          # Use YouTube TV HTML5 client extractor (bypasses bot checks & cookies)
+          yt-dlp "$URL" \
+            --extractor-args "youtube:player_client=tvhtml5,tv" \
+            --no-playlist \
+            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --merge-output-format mp4 \
+            --force-overwrites \
+            -o input.mp4
 
-          STREAM_URL=$(echo "$COBALT_RES" | jq -r '.url // empty')
-
-          if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
-            echo "Direct stream link obtained from Cobalt."
-            curl -L "$STREAM_URL" -o input.mp4
-          else
-            echo "Cobalt response: $COBALT_RES"
-            echo "Cobalt failed or rate-limited. Trying fallback API..."
-            
-            # 2. Fallback API (Piped instance API)
-            VIDEO_ID=$(echo "$URL" | grep -oE '(shorts/|v=)[a-zA-Z0-9_-]{11}' | sed 's/shorts\///' | sed 's/v=//')
-            PIPED_RES=$(curl -s "https://pipedapi.kavin.rocks/streams/$VIDEO_ID")
-            STREAM_URL=$(echo "$PIPED_RES" | jq -r '.videoStreams[] | select(.mimeType=="video/mp4" and .quality!="LBL") | .url' | head -n 1)
-
-            if [ -n "$STREAM_URL" ] && [ "$STREAM_URL" != "null" ]; then
-              echo "Direct stream link obtained from Piped API."
-              curl -L "$STREAM_URL" -o input.mp4
-            else
-              echo "Failed to fetch stream link from fallback sources."
-              exit 1
-            fi
-          fi
-
-      - name: Verify Video
+      - name: Verify Download
         run: |
           if [ ! -s input.mp4 ]; then
             echo "Downloaded video file is empty!"
