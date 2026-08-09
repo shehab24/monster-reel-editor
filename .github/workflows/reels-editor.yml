@@ -109,7 +109,7 @@ jobs:
               [0:v]
               hflip,
               scale=1080:2040:force_original_aspect_ratio=increase,
-              crop=1080:1920:0:120[video];
+              crop=1080:1920:(iw-1080)/2:120[video];
 
               [video][1:v]
               overlay=0:0[out]
