@@ -33,56 +33,44 @@ jobs:
           URL="${{ github.event.inputs.video_url }}"
           echo "Processing URL: $URL"
 
-          if [[ "$URL" =~ youtube\.com|youtu\.be ]]; then
-            echo "YouTube URL detected. Rotating through proxy list..."
+          if [ -z "${{ secrets.PROXY_LIST }}" ]; then
+            echo "ERROR: PROXY_LIST secret is missing or empty!"
+            exit 1
+          fi
 
-            if [ -z "${{ secrets.PROXY_LIST }}" ]; then
-              echo "ERROR: PROXY_LIST secret is missing or empty!"
-              exit 1
-            fi
+          # Read PROXY_LIST secret and shuffle the proxies randomly
+          mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
 
-            # Read PROXY_LIST secret and shuffle the proxies randomly
-            mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
+          DOWNLOAD_SUCCESS=false
 
-            DOWNLOAD_SUCCESS=false
+          for PROXY in "${PROXIES[@]}"; do
+            # Clean carriage returns/spaces
+            PROXY=$(echo "$PROXY" | tr -d '\r' | xargs)
+            echo "Attempting download using proxy: $(echo "$PROXY" | sed -E 's/:([^@]+)@/:***@/')"
 
-            for PROXY in "${PROXIES[@]}"; do
-              # Clean carriage returns/spaces
-              PROXY=$(echo "$PROXY" | tr -d '\r' | xargs)
-              echo "Attempting download using proxy: $(echo "$PROXY" | sed -E 's/:([^@]+)@/:***@/')"
-
-              yt-dlp "$URL" \
-                --proxy "$PROXY" \
-                --no-playlist \
-                -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-                --merge-output-format mp4 \
-                --force-overwrites \
-                --socket-timeout 15 \
-                -o input.mp4 || true
-
-              if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
-                echo "SUCCESS: Video downloaded successfully via proxy!"
-                DOWNLOAD_SUCCESS=true
-                break
-              else
-                echo "Proxy attempt failed or timed out. Trying next proxy..."
-                rm -f input.mp4
-              fi
-            done
-
-            if [ "$DOWNLOAD_SUCCESS" = false ]; then
-              echo "ERROR: All proxies failed to download the YouTube video."
-              exit 1
-            fi
-
-          else
-            echo "Non-YouTube URL detected (Facebook Reels, etc.). Downloading directly..."
             yt-dlp "$URL" \
+              --proxy "$PROXY" \
+              --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
               --no-playlist \
               -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
               --merge-output-format mp4 \
               --force-overwrites \
-              -o input.mp4
+              --socket-timeout 15 \
+              -o input.mp4 || true
+
+            if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
+              echo "SUCCESS: Video downloaded successfully via proxy!"
+              DOWNLOAD_SUCCESS=true
+              break
+            else
+              echo "Proxy attempt failed or timed out. Trying next proxy..."
+              rm -f input.mp4
+            fi
+          done
+
+          if [ "$DOWNLOAD_SUCCESS" = false ]; then
+            echo "ERROR: All proxies failed to download the video."
+            exit 1
           fi
 
       - name: Verify Download
@@ -100,8 +88,8 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # Scale to slightly larger height and crop with an upward offset (y=120)
-          # to push the original bottom captions down cleanly behind the overlay shape
+          # Scale to slightly larger height and crop centered horizontally
+          # with an upward offset (y=120) to push original captions down
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
