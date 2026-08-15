@@ -155,10 +155,21 @@ jobs:
           gh release upload "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --clobber || \
           gh release create "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --title "Media Storage" --notes "Reel assets"
 
-          # Construct direct public download URL
+          # Construct direct public download URL for Buffer
           VIDEO_PUBLIC_URL="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${FINAL_FILENAME}"
           echo "VIDEO_PUBLIC_URL=$VIDEO_PUBLIC_URL" >> $GITHUB_ENV
           echo "Public asset URL: $VIDEO_PUBLIC_URL"
+
+      - name: Backup to Google Drive
+        if: env.SKIP_JOB != 'true'
+        run: |
+          sudo curl -s https://rclone.org/install.sh | sudo bash
+
+          rclone copy "$FINAL_FILENAME" :drive: \
+            --drive-client-id="${{ secrets.GDRIVE_CLIENT_ID }}" \
+            --drive-client-secret="${{ secrets.GDRIVE_CLIENT_SECRET }}" \
+            --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
+            --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
       - name: Schedule to Buffer (All Channels)
         if: env.SKIP_JOB != 'true'
@@ -196,4 +207,4 @@ jobs:
 
       - name: Done
         if: env.SKIP_JOB != 'true'
-        run: echo "Process complete! Video published to Buffer and logged to Google Sheet."
+        run: echo "Process complete! Video published to Buffer, backed up to Google Drive, and logged in Google Sheet."
