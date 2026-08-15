@@ -56,48 +56,64 @@ jobs:
             echo "ROW_NUMBER=$ROW_NUMBER" >> $GITHUB_ENV
           fi
 
-      - name: Download Video via Rotating Proxies
+      - name: Download Video (Proxies with Direct Fallback)
         if: env.SKIP_JOB != 'true'
         run: |
           rm -f input.mp4
           echo "Processing URL: $TARGET_URL"
-
-          if [ -z "${{ secrets.PROXY_LIST }}" ]; then
-            echo "ERROR: PROXY_LIST secret is missing or empty!"
-            exit 1
-          fi
-
-          # Read PROXY_LIST secret and shuffle the proxies randomly
-          mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
           DOWNLOAD_SUCCESS=false
 
-          for PROXY in "${PROXIES[@]}"; do
-            # Clean carriage returns/spaces
-            PROXY=$(echo "$PROXY" | tr -d '\r' | xargs)
-            echo "Attempting download using proxy: $(echo "$PROXY" | sed -E 's/:([^@]+)@/:***@/')"
+          # 1. Try randomized proxies if PROXY_LIST secret exists
+          if [ -n "${{ secrets.PROXY_LIST }}" ]; then
+            mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
+            echo "Found ${#PROXIES[@]} proxies in list. Starting randomized attempts..."
 
+            for PROXY in "${PROXIES[@]}"; do
+              PROXY=$(echo "$PROXY" | tr -d '\r' | xargs)
+              echo "Attempting download using proxy: $(echo "$PROXY" | sed -E 's/:([^@]+)@/:***@/')"
+
+              yt-dlp "$TARGET_URL" \
+                --proxy "$PROXY" \
+                --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                --no-playlist \
+                -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+                --merge-output-format mp4 \
+                --force-overwrites \
+                --socket-timeout 15 \
+                -o input.mp4 || true
+
+              if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
+                echo "SUCCESS: Video downloaded successfully via proxy!"
+                DOWNLOAD_SUCCESS=true
+                break
+              else
+                echo "Proxy attempt failed or timed out. Trying next proxy..."
+                rm -f input.mp4
+              fi
+            done
+          fi
+
+          # 2. Fallback: Direct download if proxies failed or expired
+          if [ "$DOWNLOAD_SUCCESS" = false ]; then
+            echo "Proxy attempts unsuccessful. Trying direct download fallback..."
             yt-dlp "$TARGET_URL" \
-              --proxy "$PROXY" \
               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
               --no-playlist \
               -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
               --merge-output-format mp4 \
               --force-overwrites \
-              --socket-timeout 15 \
+              --socket-timeout 20 \
               -o input.mp4 || true
 
             if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
-              echo "SUCCESS: Video downloaded successfully via proxy!"
+              echo "SUCCESS: Direct download succeeded!"
               DOWNLOAD_SUCCESS=true
-              break
-            else
-              echo "Proxy attempt failed or timed out. Trying next proxy..."
-              rm -f input.mp4
             fi
-          done
+          fi
 
+          # 3. Validation check
           if [ "$DOWNLOAD_SUCCESS" = false ]; then
-            echo "ERROR: All proxies failed to download the video."
+            echo "ERROR: All proxy attempts and direct download fallback failed."
             exit 1
           fi
 
@@ -118,8 +134,8 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # Scale to slightly larger height and crop centered horizontally
-          # with an upward offset (y=120) to push original captions down
+          # Scale to larger height, flip horizontally, crop to 9:16 (1080x1920)
+          # with an upward offset (y=120) to remove bottom captions, and apply overlay
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
@@ -151,11 +167,11 @@ jobs:
           TAG="v1.0"
           TARGET_REPO="shehab24/media-storage"
 
-          # Upload video asset directly to media-storage release
+          # Upload video asset directly to the v1.0 release in media-storage
           gh release upload "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --clobber || \
           gh release create "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --title "Media Storage" --notes "Reel assets"
 
-          # Construct direct public download URL for Buffer
+          # Construct the public direct download link for Buffer
           VIDEO_PUBLIC_URL="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${FINAL_FILENAME}"
           echo "VIDEO_PUBLIC_URL=$VIDEO_PUBLIC_URL" >> $GITHUB_ENV
           echo "Public asset URL: $VIDEO_PUBLIC_URL"
