@@ -208,22 +208,49 @@ jobs:
           TITLE="🎙️ আনিসুর রহমান আশরাফী #shorts"
           CAPTION=$'🎙️#আনিসুর_রহমান_আশরাফী\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture #reels'
 
+          # Fetch channel profiles from Buffer API to inspect platform services
+          CHANNELS_DATA=$(curl -s -X POST "https://api.buffer.com" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BUFFER_ACCESS_TOKEN" \
+            -d '{"query": "query { channels { id service } }"}')
+
           IFS=',' read -ra PROFILES <<< "$BUFFER_PROFILE_IDS"
 
           for profile in "${PROFILES[@]}"; do
             profile_id=$(echo "$profile" | xargs)
             if [ -n "$profile_id" ]; then
-              echo "Publishing immediately to channel ID: $profile_id..."
+              # Detect service (facebook, youtube, tiktok, etc.)
+              SERVICE=$(echo "$CHANNELS_DATA" | jq -r --arg cid "$profile_id" '.data.channels[]? | select(.id == $cid) | .service' | tr '[:upper:]' '[:lower:]')
 
+              if [ -z "$SERVICE" ] || [ "$SERVICE" = "null" ]; then
+                # Fallback query for single channel service
+                SERVICE=$(curl -s -X POST "https://api.buffer.com" \
+                  -H "Content-Type: application/json" \
+                  -H "Authorization: Bearer $BUFFER_ACCESS_TOKEN" \
+                  -d "{\"query\": \"query { channel(id: \\\"$profile_id\\\") { service } }\"}" | jq -r '.data.channel.service // empty' | tr '[:upper:]' '[:lower:]')
+              fi
+
+              echo "Publishing to channel ID: $profile_id (Platform: ${SERVICE:-unknown})..."
+
+              # Build platform-specific metadata strictly matching Buffer's rules
+              if [ "$SERVICE" = "youtube" ]; then
+                METADATA_JSON=$(jq -n --arg title "$TITLE" '{youtube: {title: $title, categoryId: "22", notifySubscribers: true}}')
+              elif [ "$SERVICE" = "facebook" ]; then
+                METADATA_JSON=$(jq -n '{facebook: {type: "reel"}}')
+              else
+                METADATA_JSON="null"
+              fi
+
+              # Construct GraphQL payload with single matching metadata key
               PAYLOAD=$(jq -n \
                 --arg channelId "$profile_id" \
                 --arg text "$CAPTION" \
-                --arg title "$TITLE" \
                 --arg videoUrl "$VIDEO_PUBLIC_URL" \
+                --argjson metadata "$METADATA_JSON" \
                 '{
                   query: "mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { ... on PostActionSuccess { post { id status } } ... on MutationError { message } } }",
                   variables: {
-                    input: {
+                    input: ({
                       channelId: $channelId,
                       schedulingType: "automatic",
                       mode: "shareNow",
@@ -234,18 +261,8 @@ jobs:
                             url: $videoUrl
                           }
                         }
-                      ],
-                      metadata: {
-                        facebook: {
-                          type: "reel"
-                        },
-                        youtube: {
-                          title: $title,
-                          categoryId: "22",
-                          notifySubscribers: true
-                        }
-                      }
-                    }
+                      ]
+                    } + (if $metadata != null then {metadata: $metadata} else {} end))
                   }
                 }')
 
