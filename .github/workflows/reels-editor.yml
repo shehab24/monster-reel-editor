@@ -199,7 +199,7 @@ jobs:
             --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
-      - name: Schedule to Buffer (GraphQL API)
+      - name: Publish to Buffer (SHARE_NOW)
         if: env.SKIP_JOB != 'true'
         env:
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
@@ -221,7 +221,7 @@ jobs:
                   variables: {
                     input: {
                       channelId: $channelId,
-                      schedulingType: "queue",
+                      mode: "SHARE_NOW",
                       text: $text,
                       attachments: {
                         video: {
@@ -250,4 +250,4 @@ jobs:
 
       - name: Done
         if: env.SKIP_JOB != 'true'
-        run: echo "Process complete! Video published to Buffer, backed up to Google Drive, and logged in Google Sheet."
+        run: echo "Process complete! Video published to Buffer via SHARE_NOW, backed up to Google Drive, and logged in Google Sheet."
