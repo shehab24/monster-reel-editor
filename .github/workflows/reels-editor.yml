@@ -183,7 +183,7 @@ jobs:
           gh release upload "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --clobber || \
           gh release create "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --title "Media Storage" --notes "Reel assets"
 
-          # Construct the public direct download link for Buffer
+          # Construct direct public download URL
           VIDEO_PUBLIC_URL="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${FINAL_FILENAME}"
           echo "VIDEO_PUBLIC_URL=$VIDEO_PUBLIC_URL" >> $GITHUB_ENV
           echo "Public asset URL: $VIDEO_PUBLIC_URL"
@@ -213,7 +213,7 @@ jobs:
           for profile in "${PROFILES[@]}"; do
             profile_id=$(echo "$profile" | xargs)
             if [ -n "$profile_id" ]; then
-              echo "Publishing to channel ID: $profile_id..."
+              echo "Publishing immediately to channel ID: $profile_id..."
 
               PAYLOAD=$(jq -n \
                 --arg channelId "$profile_id" \
@@ -241,8 +241,8 @@ jobs:
                         },
                         youtube: {
                           title: $title,
-                          category: "People & Blogs",
-                          shouldNotifySubscribers: true
+                          categoryId: "22",
+                          notifySubscribers: true
                         }
                       }
                     }
@@ -257,6 +257,23 @@ jobs:
               echo "Buffer Response for $profile_id: $RESPONSE"
             fi
           done
+
+      - name: Prune Old Release Assets (Keep Latest 5)
+        if: env.SKIP_JOB != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_STORAGE_TOKEN }}
+        run: |
+          TAG="v1.0"
+          TARGET_REPO="shehab24/media-storage"
+
+          echo "Pruning older release assets from $TARGET_REPO..."
+          gh release view "$TAG" --repo "$TARGET_REPO" --json assets --jq '.assets[] | select(.name | endswith(".mp4")) | .name' | \
+            head -n -5 | while read -r old_file; do
+              if [ -n "$old_file" ]; then
+                echo "Deleting old asset: $old_file"
+                gh release delete-asset "$TAG" "$old_file" --repo "$TARGET_REPO" -y || true
+              fi
+            done
 
       - name: Update Google Sheet Status to 'posted'
         if: env.SKIP_JOB != 'true' && env.ROW_NUMBER != ''
