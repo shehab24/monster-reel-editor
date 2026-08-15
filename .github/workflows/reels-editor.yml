@@ -2,8 +2,8 @@ name: Edit Reels
 
 on:
   schedule:
-    # Automatically runs every 2 hours
-    - cron: '0 */2 * * *'
+    # Automatically runs every 4 hours
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       video_url:
