@@ -10,6 +10,10 @@ on:
         description: "Manual Video URL override (leave blank to pull next pending from Sheet)"
         required: false
         type: string
+      row_id:
+        description: "Sheet Row ID to mark as posted (optional, for manual run)"
+        required: false
+        type: string
 
 concurrency:
   group: reels-processing
@@ -34,11 +38,19 @@ jobs:
         id: fetch_url
         run: |
           MANUAL_URL="${{ github.event.inputs.video_url }}"
+          MANUAL_ROW="${{ github.event.inputs.row_id }}"
 
           if [ -n "$MANUAL_URL" ]; then
             echo "Manual run detected with URL: $MANUAL_URL"
             echo "TARGET_URL=$MANUAL_URL" >> $GITHUB_ENV
-            echo "ROW_NUMBER=" >> $GITHUB_ENV
+
+            if [ -n "$MANUAL_ROW" ]; then
+              echo "Manual Row ID provided: $MANUAL_ROW"
+              echo "ROW_NUMBER=$MANUAL_ROW" >> $GITHUB_ENV
+            else
+              echo "No Row ID provided for manual run. Sheet will not be updated."
+              echo "ROW_NUMBER=" >> $GITHUB_ENV
+            fi
           else
             echo "Fetching next pending URL from Google Sheet..."
             API_RESPONSE=$(curl -sL "${{ secrets.SHEET_API_URL }}?action=getNext")
@@ -187,32 +199,47 @@ jobs:
             --drive-token='{"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}' \
             --drive-root-folder-id="16kpxFtM9J0yCYwa1cCC7QHcKPz_INsri"
 
-      - name: Schedule to Buffer (All Channels)
+      - name: Schedule to Buffer (GraphQL API)
         if: env.SKIP_JOB != 'true'
         env:
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_PROFILE_IDS: ${{ secrets.BUFFER_PROFILE_ID }}
         run: |
-          # Build repeated -d "profile_ids[]=<id>" arguments for each channel ID
-          PROFILE_ARGS=()
-          IFS=',' read -ra ADDR <<< "$BUFFER_PROFILE_IDS"
-          for id in "${ADDR[@]}"; do
-            clean_id=$(echo "$id" | xargs)
-            if [ -n "$clean_id" ]; then
-              PROFILE_ARGS+=(-d "profile_ids[]=$clean_id")
+          IFS=',' read -ra PROFILES <<< "$BUFFER_PROFILE_IDS"
+
+          for profile in "${PROFILES[@]}"; do
+            profile_id=$(echo "$profile" | xargs)
+            if [ -n "$profile_id" ]; then
+              echo "Publishing to channel ID: $profile_id..."
+
+              PAYLOAD=$(jq -n \
+                --arg channelId "$profile_id" \
+                --arg text "Check out this reel! #reels #viral" \
+                --arg videoUrl "$VIDEO_PUBLIC_URL" \
+                '{
+                  query: "mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { ... on PostActionSuccess { post { id status } } ... on MutationError { message } } }",
+                  variables: {
+                    input: {
+                      channelId: $channelId,
+                      schedulingType: "queue",
+                      text: $text,
+                      attachments: {
+                        video: {
+                          url: $videoUrl
+                        }
+                      }
+                    }
+                  }
+                }')
+
+              RESPONSE=$(curl -s -X POST "https://api.buffer.com" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $BUFFER_ACCESS_TOKEN" \
+                -d "$PAYLOAD")
+
+              echo "Buffer Response for $profile_id: $RESPONSE"
             fi
           done
-
-          echo "Posting to ${#PROFILE_ARGS[@]} connected profile(s)..."
-
-          BUFFER_RESPONSE=$(curl -s -X POST "https://api.bufferapp.com/1/updates/create.json" \
-            -H "Authorization: Bearer $BUFFER_ACCESS_TOKEN" \
-            "${PROFILE_ARGS[@]}" \
-            -d "text=Check out this reel! #reels #viral" \
-            -d "media[video]=$VIDEO_PUBLIC_URL" \
-            -d "now=false")
-
-          echo "Buffer Response: $BUFFER_RESPONSE"
 
       - name: Update Google Sheet Status to 'posted'
         if: env.SKIP_JOB != 'true' && env.ROW_NUMBER != ''
