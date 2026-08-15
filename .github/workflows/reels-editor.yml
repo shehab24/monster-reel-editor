@@ -205,18 +205,20 @@ jobs:
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_PROFILE_IDS: ${{ secrets.BUFFER_PROFILE_ID }}
         run: |
-          CAPTION=$'🎙️#আনিসুর_রহমান_আশরাফী\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture'
+          TITLE="🎙️ আনিসুর রহমান আশরাফী #shorts"
+          CAPTION=$'🎙️#আনিসুর_রহমান_আশরাফী\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture #reels'
 
           IFS=',' read -ra PROFILES <<< "$BUFFER_PROFILE_IDS"
 
           for profile in "${PROFILES[@]}"; do
             profile_id=$(echo "$profile" | xargs)
             if [ -n "$profile_id" ]; then
-              echo "Publishing immediately to channel ID: $profile_id..."
+              echo "Publishing to channel ID: $profile_id..."
 
               PAYLOAD=$(jq -n \
                 --arg channelId "$profile_id" \
                 --arg text "$CAPTION" \
+                --arg title "$TITLE" \
                 --arg videoUrl "$VIDEO_PUBLIC_URL" \
                 '{
                   query: "mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { ... on PostActionSuccess { post { id status } } ... on MutationError { message } } }",
@@ -232,7 +234,17 @@ jobs:
                             url: $videoUrl
                           }
                         }
-                      ]
+                      ],
+                      metadata: {
+                        facebook: {
+                          type: "reel"
+                        },
+                        youtube: {
+                          title: $title,
+                          category: "People & Blogs",
+                          shouldNotifySubscribers: true
+                        }
+                      }
                     }
                   }
                 }')
