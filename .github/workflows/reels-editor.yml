@@ -226,11 +226,13 @@ jobs:
                       schedulingType: "automatic",
                       mode: "shareNow",
                       text: $text,
-                      attachments: {
-                        video: {
-                          url: $videoUrl
+                      assets: [
+                        {
+                          video: {
+                            url: $videoUrl
+                          }
                         }
-                      }
+                      ]
                     }
                   }
                 }')
