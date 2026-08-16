@@ -14,6 +14,10 @@ on:
         description: "Sheet Row ID to mark as posted (optional, for manual run)"
         required: false
         type: string
+      title:
+        description: "Custom Title (optional for manual run; pulled from Sheet Column D if empty)"
+        required: false
+        type: string
 
 concurrency:
   group: reels-processing
@@ -34,15 +38,22 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl python3-pip
           pip3 install --upgrade --no-cache-dir yt-dlp
 
-      - name: Fetch Next Video URL
+      - name: Fetch Next Video URL & Title
         id: fetch_url
         run: |
           MANUAL_URL="${{ github.event.inputs.video_url }}"
           MANUAL_ROW="${{ github.event.inputs.row_id }}"
+          MANUAL_TITLE="${{ github.event.inputs.title }}"
 
           if [ -n "$MANUAL_URL" ]; then
             echo "Manual run detected with URL: $MANUAL_URL"
             echo "TARGET_URL=$MANUAL_URL" >> $GITHUB_ENV
+
+            if [ -n "$MANUAL_TITLE" ]; then
+              echo "VIDEO_TITLE=$MANUAL_TITLE" >> $GITHUB_ENV
+            else
+              echo "VIDEO_TITLE=🎙️ আনিসুর রহমান আশরাফী #shorts" >> $GITHUB_ENV
+            fi
 
             if [ -n "$MANUAL_ROW" ]; then
               echo "Manual Row ID provided: $MANUAL_ROW"
@@ -56,6 +67,7 @@ jobs:
             API_RESPONSE=$(curl -sL "${{ secrets.SHEET_API_URL }}?action=getNext")
             TARGET_URL=$(echo "$API_RESPONSE" | jq -r '.url')
             ROW_NUMBER=$(echo "$API_RESPONSE" | jq -r '.row')
+            FETCHED_TITLE=$(echo "$API_RESPONSE" | jq -r '.title // empty')
 
             if [ "$TARGET_URL" = "null" ] || [ -z "$TARGET_URL" ]; then
               echo "No pending videos found in Google Sheet. Exiting workflow cleanly."
@@ -63,8 +75,14 @@ jobs:
               exit 0
             fi
 
+            if [ -z "$FETCHED_TITLE" ] || [ "$FETCHED_TITLE" = "null" ]; then
+              FETCHED_TITLE="🎙️ আনিসুর রহমান আশরাফী #shorts"
+            fi
+
             echo "Target URL fetched (Row: $ROW_NUMBER): $TARGET_URL"
+            echo "Target Title fetched: $FETCHED_TITLE"
             echo "TARGET_URL=$TARGET_URL" >> $GITHUB_ENV
+            echo "VIDEO_TITLE=$FETCHED_TITLE" >> $GITHUB_ENV
             echo "ROW_NUMBER=$ROW_NUMBER" >> $GITHUB_ENV
           fi
 
@@ -146,8 +164,6 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # Scale to larger height, flip horizontally, crop to 9:16 (1080x1920)
-          # with an upward offset (y=120) to remove bottom captions, and apply overlay
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay.png \
@@ -179,11 +195,9 @@ jobs:
           TAG="v1.0"
           TARGET_REPO="shehab24/media-storage"
 
-          # Upload video asset directly to the v1.0 release in media-storage
           gh release upload "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --clobber || \
           gh release create "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --title "Media Storage" --notes "Reel assets"
 
-          # Construct direct public download URL
           VIDEO_PUBLIC_URL="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${FINAL_FILENAME}"
           echo "VIDEO_PUBLIC_URL=$VIDEO_PUBLIC_URL" >> $GITHUB_ENV
           echo "Public asset URL: $VIDEO_PUBLIC_URL"
@@ -205,8 +219,14 @@ jobs:
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_PROFILE_IDS: ${{ secrets.BUFFER_PROFILE_ID }}
         run: |
-          TITLE="🎙️ আনিসুর রহমান আশরাফী #shorts"
-          CAPTION=$'🎙️#আনিসুর_রহমান_আশরাফী\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture #reels'
+          # Formulate clean title and hashtags based on Google Sheet Column D
+          RAW_TITLE="${{ env.VIDEO_TITLE }}"
+          
+          # YouTube Title (Includes #shorts)
+          YT_TITLE="$RAW_TITLE #shorts"
+          
+          # Universal Post Caption across platforms
+          CAPTION=$(printf "%s\n\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture #reels #shorts" "$RAW_TITLE")
 
           IFS=',' read -ra PROFILES <<< "$BUFFER_PROFILE_IDS"
 
@@ -217,8 +237,8 @@ jobs:
               # Map platform metadata directly based on Channel ID
               if [ "$profile_id" = "6a74de6799afb4434914e171" ]; then
                 echo "----------------------------------------------------"
-                echo "Publishing to YouTube (Shorts) ID: $profile_id..."
-                METADATA_JSON=$(jq -n --arg title "$TITLE" '{youtube: {title: $title, categoryId: "22", notifySubscribers: true}}')
+                echo "Publishing to YouTube (Shorts) ID: $profile_id with Title: $YT_TITLE"
+                METADATA_JSON=$(jq -n --arg title "$YT_TITLE" '{youtube: {title: $title, categoryId: "22", notifySubscribers: true}}')
 
               elif [ "$profile_id" = "6a72d9dd99afb44349056b4a" ]; then
                 echo "----------------------------------------------------"
