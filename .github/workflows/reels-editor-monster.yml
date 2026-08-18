@@ -2,8 +2,8 @@ name: Edit Reels Monster
 
 on:
   schedule:
-    # Automatically runs every 4 hours
-    - cron: '0 */4 * * *'
+    # Automatically runs every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       video_url:
