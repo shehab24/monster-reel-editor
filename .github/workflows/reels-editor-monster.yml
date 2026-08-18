@@ -52,7 +52,7 @@ jobs:
             if [ -n "$MANUAL_TITLE" ]; then
               echo "VIDEO_TITLE=$MANUAL_TITLE" >> $GITHUB_ENV
             else
-              echo "VIDEO_TITLE=🎙️ আনিসুর রহমান আশরাফী #shorts" >> $GITHUB_ENV
+              echo "VIDEO_TITLE=🎬 Enter the world of monsters, machines & epic cinematic stories." >> $GITHUB_ENV
             fi
 
             if [ -n "$MANUAL_ROW" ]; then
@@ -76,7 +76,7 @@ jobs:
             fi
 
             if [ -z "$FETCHED_TITLE" ] || [ "$FETCHED_TITLE" = "null" ]; then
-              FETCHED_TITLE="🎙️ আনিসুর রহমান আশরাফী #shorts"
+              FETCHED_TITLE="🎬 Enter the world of monsters, machines & epic cinematic stories."
             fi
 
             echo "Target URL fetched (Row: $ROW_NUMBER): $TARGET_URL"
@@ -86,15 +86,32 @@ jobs:
             echo "ROW_NUMBER=$ROW_NUMBER" >> $GITHUB_ENV
           fi
 
-      - name: Download Video (Proxies with Direct Fallback)
+      - name: Download Video (Direct First with Proxy Fallback)
         if: env.SKIP_JOB != 'true'
         run: |
           rm -f input.mp4
           echo "Processing URL: $TARGET_URL"
           DOWNLOAD_SUCCESS=false
 
-          # 1. Try randomized proxies if PROXY_LIST secret exists
-          if [ -n "${{ secrets.PROXY_LIST }}" ]; then
+          # 1. First Attempt: Direct download without proxy
+          echo "Attempting direct download first..."
+          yt-dlp "$TARGET_URL" \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --no-playlist \
+            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --merge-output-format mp4 \
+            --force-overwrites \
+            --socket-timeout 20 \
+            -o input.mp4 || true
+
+          if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
+            echo "SUCCESS: Direct download succeeded!"
+            DOWNLOAD_SUCCESS=true
+          fi
+
+          # 2. Fallback: Try randomized proxies if direct download failed
+          if [ "$DOWNLOAD_SUCCESS" = false ] && [ -n "${{ secrets.PROXY_LIST }}" ]; then
+            echo "Direct download failed. Falling back to proxies list..."
             mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
             echo "Found ${#PROXIES[@]} proxies in list. Starting randomized attempts..."
 
@@ -123,27 +140,9 @@ jobs:
             done
           fi
 
-          # 2. Fallback: Direct download if proxies failed or expired
-          if [ "$DOWNLOAD_SUCCESS" = false ]; then
-            echo "Proxy attempts unsuccessful. Trying direct download fallback..."
-            yt-dlp "$TARGET_URL" \
-              --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-              --no-playlist \
-              -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-              --merge-output-format mp4 \
-              --force-overwrites \
-              --socket-timeout 20 \
-              -o input.mp4 || true
-
-            if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
-              echo "SUCCESS: Direct download succeeded!"
-              DOWNLOAD_SUCCESS=true
-            fi
-          fi
-
           # 3. Validation check
           if [ "$DOWNLOAD_SUCCESS" = false ]; then
-            echo "ERROR: All proxy attempts and direct download fallback failed."
+            echo "ERROR: Both direct download and all proxy attempts failed."
             exit 1
           fi
 
@@ -189,13 +188,13 @@ jobs:
             -movflags +faststart \
             "$FILENAME"
 
-      - name: Upload to media-storage Release
+      - name: Upload to media-storage-monster Release
         if: env.SKIP_JOB != 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_STORAGE_TOKEN }}
         run: |
           TAG="v1.0"
-          TARGET_REPO="shehab24/media-storage"
+          TARGET_REPO="shehab24/media-storage-monster"
 
           gh release upload "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --clobber || \
           gh release create "$TAG" "$FINAL_FILENAME" --repo "$TARGET_REPO" --title "Media Storage" --notes "Reel assets"
@@ -210,14 +209,13 @@ jobs:
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_PROFILE_IDS: ${{ secrets.BUFFER_PROFILE_ID }}
         run: |
-          # Formulate clean title and hashtags based on Google Sheet Column D
           RAW_TITLE="${{ env.VIDEO_TITLE }}"
           
           # YouTube Title (Includes #shorts)
           YT_TITLE="$RAW_TITLE #shorts"
           
           # Universal Post Caption across platforms
-          CAPTION=$(printf "%s\n\n#anisur_rahman_ashrafi #islamicshorts #banglawazislamiclecture #reels #shorts" "$RAW_TITLE")
+          CAPTION=$(printf "%s\n\n#monsters #cinematic #action #scifi #shorts #reels" "$RAW_TITLE")
 
           IFS=',' read -ra PROFILES <<< "$BUFFER_PROFILE_IDS"
 
@@ -226,25 +224,20 @@ jobs:
             if [ -n "$profile_id" ]; then
 
               # Map platform metadata directly based on Channel ID
-              if [ "$profile_id" = "6a74de6799afb4434914e171" ]; then
+              if [ "$profile_id" = "6a84b199ccaf649a67cf1e60" ]; then
                 echo "----------------------------------------------------"
                 echo "Publishing to YouTube (Shorts) ID: $profile_id with Title: $YT_TITLE"
                 METADATA_JSON=$(jq -n --arg title "$YT_TITLE" '{youtube: {title: $title, categoryId: "22", notifySubscribers: true}}')
 
-              elif [ "$profile_id" = "6a72d9dd99afb44349056b4a" ]; then
+              elif [ "$profile_id" = "6a84b265ccaf649a67cf22c6" ]; then
                 echo "----------------------------------------------------"
                 echo "Publishing to Facebook (Reels) ID: $profile_id..."
                 METADATA_JSON=$(jq -n '{facebook: {type: "reel"}}')
 
-              elif [ "$profile_id" = "6a72d98e99afb44349056a2e" ]; then
-                echo "----------------------------------------------------"
-                echo "Publishing to TikTok ID: $profile_id..."
-                METADATA_JSON="null"
-
               else
                 echo "----------------------------------------------------"
-                echo "Publishing to generic channel ID: $profile_id..."
-                METADATA_JSON="null"
+                echo "Skipping unconfigured channel ID: $profile_id (Only YouTube & FB enabled)..."
+                continue
               fi
 
               PAYLOAD=$(jq -n \
@@ -286,7 +279,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_STORAGE_TOKEN }}
         run: |
           TAG="v1.0"
-          TARGET_REPO="shehab24/media-storage"
+          TARGET_REPO="shehab24/media-storage-monster"
 
           echo "Pruning older release assets from $TARGET_REPO..."
           gh release view "$TAG" --repo "$TARGET_REPO" --json assets --jq '.assets[] | select(.name | endswith(".mp4")) | .name' | \
