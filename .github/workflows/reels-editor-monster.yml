@@ -34,9 +34,9 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg jq curl python3-pip
-          pip3 install --upgrade --no-cache-dir yt-dlp
+          # ffmpeg, curl, and jq are already pre-installed on the runner.
+          # Installing yt-dlp via pip avoids the broken Azure/Ubuntu apt mirrors completely.
+          python3 -m pip install --upgrade --no-cache-dir yt-dlp
 
       - name: Fetch Next Video URL & Title
         id: fetch_url
