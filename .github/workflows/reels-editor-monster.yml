@@ -3,7 +3,7 @@ name: Edit Reels Monster
 on:
   schedule:
     # Automatically runs every 6 hours
-    - cron: '0 */6 * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       video_url:
@@ -163,16 +163,20 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # Scale to larger height, flip horizontally, crop to 9:16 (1080x1920)
-          # with an upward offset (y=120) to remove bottom captions, and apply full-overlay-monster.png
+          # 1. Flip horizontally
+          # 2. Extract center square (in_w by in_w) to strip top/bottom black bars
+          # 3. Scale up so height covers 1920
+          # 4. Center-crop to 1080x1920 (eliminating side borders and filling full 9:16 screen)
+          # 5. Apply full-overlay-monster.png on top
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay-monster.png \
             -filter_complex "
               [0:v]
               hflip,
-              scale=1080:2040:force_original_aspect_ratio=increase,
-              crop=1080:1920:(iw-1080)/2:120[video];
+              crop=in_w:in_w:0:(in_h-in_w)/2,
+              scale=1080:1920:force_original_aspect_ratio=increase,
+              crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2[video];
 
               [video][1:v]
               overlay=0:0[out]
