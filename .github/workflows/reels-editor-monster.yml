@@ -34,16 +34,18 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Download standalone static FFmpeg and yt-dlp binaries directly into /usr/local/bin
-          sudo curl -L https://github.com/ffbinaries/branches/raw/master/bin/linux/64/ffmpeg -o /usr/local/bin/ffmpeg
-          sudo chmod +x /usr/local/bin/ffmpeg
+          # 1. Download official static FFmpeg tarball and extract binaries directly to /usr/local/bin
+          curl -sL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | \
+            tar -xJ --strip-components=2 -C /usr/local/bin/ ffmpeg-master-latest-linux64-gpl/bin/ffmpeg ffmpeg-master-latest-linux64-gpl/bin/ffprobe
+          sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
 
+          # 2. Download standalone yt-dlp binary
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod +x /usr/local/bin/yt-dlp
 
-          # Sanity check
-          ffmpeg -version | head -n 1
-          yt-dlp --version
+          # 3. Verification check
+          /usr/local/bin/ffmpeg -version | head -n 1
+          /usr/local/bin/yt-dlp --version
 
       - name: Fetch Next Video URL & Title
         id: fetch_url
@@ -119,7 +121,7 @@ jobs:
             DOWNLOAD_SUCCESS=true
           fi
 
-          # 2. Proxy Fallback (Aggressive failover to skip unresponsive proxies)
+          # 2. Proxy Fallback (Fast failover)
           if [ "$DOWNLOAD_SUCCESS" = false ] && [ -n "${{ secrets.PROXY_LIST }}" ]; then
             echo "Direct download failed. Trying proxies with fast failover..."
             mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
