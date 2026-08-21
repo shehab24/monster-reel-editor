@@ -34,15 +34,14 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Download standalone static FFmpeg binary (directly executable)
+          # Download standalone static FFmpeg and yt-dlp binaries directly into /usr/local/bin
           sudo curl -L https://github.com/ffbinaries/branches/raw/master/bin/linux/64/ffmpeg -o /usr/local/bin/ffmpeg
           sudo chmod +x /usr/local/bin/ffmpeg
 
-          # 2. Download standalone static yt-dlp binary (directly executable)
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod +x /usr/local/bin/yt-dlp
 
-          # 3. Quick sanity check verification
+          # Sanity check
           ffmpeg -version | head -n 1
           yt-dlp --version
 
@@ -101,15 +100,18 @@ jobs:
           echo "Processing URL: $TARGET_URL"
           DOWNLOAD_SUCCESS=false
 
-          # 1. First Attempt: Direct download without proxy
+          # 1. Direct download attempt (Fast timeout, no proxy)
           echo "Attempting direct download first..."
           yt-dlp "$TARGET_URL" \
+            --ffmpeg-location /usr/local/bin/ffmpeg \
             --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             --no-playlist \
+            --retries 1 \
+            --fragment-retries 1 \
+            --socket-timeout 10 \
             -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --merge-output-format mp4 \
             --force-overwrites \
-            --socket-timeout 20 \
             -o input.mp4 || true
 
           if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
@@ -117,9 +119,9 @@ jobs:
             DOWNLOAD_SUCCESS=true
           fi
 
-          # 2. Fallback: Try randomized proxies if direct download failed
+          # 2. Proxy Fallback (Aggressive failover to skip unresponsive proxies)
           if [ "$DOWNLOAD_SUCCESS" = false ] && [ -n "${{ secrets.PROXY_LIST }}" ]; then
-            echo "Direct download failed. Falling back to proxies list..."
+            echo "Direct download failed. Trying proxies with fast failover..."
             mapfile -t PROXIES < <(echo "${{ secrets.PROXY_LIST }}" | grep -v '^[[:space:]]*$' | shuf)
             echo "Found ${#PROXIES[@]} proxies in list. Starting randomized attempts..."
 
@@ -129,20 +131,23 @@ jobs:
 
               yt-dlp "$TARGET_URL" \
                 --proxy "$PROXY" \
+                --ffmpeg-location /usr/local/bin/ffmpeg \
                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
                 --no-playlist \
+                --retries 1 \
+                --fragment-retries 1 \
+                --socket-timeout 7 \
                 -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
                 --merge-output-format mp4 \
                 --force-overwrites \
-                --socket-timeout 15 \
                 -o input.mp4 || true
 
               if [ -s input.mp4 ] && [ $(wc -c < input.mp4) -gt 300000 ]; then
-                echo "SUCCESS: Video downloaded successfully via proxy!"
+                echo "SUCCESS: Video downloaded and merged successfully via proxy!"
                 DOWNLOAD_SUCCESS=true
                 break
               else
-                echo "Proxy attempt failed or timed out. Trying next proxy..."
+                echo "Proxy attempt failed or timed out. Moving immediately to next..."
                 rm -f input.mp4 input.*
               fi
             done
@@ -171,8 +176,7 @@ jobs:
           FILENAME="reel_${TIMESTAMP}.mp4"
           echo "FINAL_FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          # Scale to larger height, flip horizontally, crop to 9:16 (1080x1920)
-          # with an upward offset (y=120) to remove bottom captions, and apply full-overlay-monster.png
+          # Scale up, flip horizontally, crop to 9:16 (1080x1920) with y=120 offset, and apply overlay
           ffmpeg -y \
             -i input.mp4 \
             -i full-overlay-monster.png \
