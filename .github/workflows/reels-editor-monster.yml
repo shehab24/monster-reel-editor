@@ -32,13 +32,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup FFmpeg (Instant Binary)
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install yt-dlp
+      - name: Install Static FFmpeg & yt-dlp
         run: |
+          # 1. Download static precompiled FFmpeg binary (bypasses broken apt and broken actions)
+          curl -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin/ ffmpeg-*-amd64-static/ffmpeg ffmpeg-*-amd64-static/ffprobe
+          sudo chmod a+rx /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+
+          # 2. Install yt-dlp
           python3 -m pip install --upgrade --no-cache-dir yt-dlp
 
       - name: Fetch Next Video URL & Title
