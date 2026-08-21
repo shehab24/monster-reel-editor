@@ -32,15 +32,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Static FFmpeg & yt-dlp
+      - name: Install Dependencies
         run: |
-          python3 -m pip install --upgrade --no-cache-dir yt-dlp static-ffmpeg
-          # Expose static-ffmpeg binaries directly to system PATH
-          static_ffmpeg -y
-          FFMPEG_DIR=$(python3 -c "import static_ffmpeg; print(static_ffmpeg.run._get_or_download()[0])")
-          echo "$FFMPEG_DIR" >> $GITHUB_PATH
-          sudo ln -sf "$FFMPEG_DIR/ffmpeg" /usr/local/bin/ffmpeg
-          sudo ln -sf "$FFMPEG_DIR/ffprobe" /usr/local/bin/ffprobe
+          # 1. Download standalone static FFmpeg binary (directly executable)
+          sudo curl -L https://github.com/ffbinaries/branches/raw/master/bin/linux/64/ffmpeg -o /usr/local/bin/ffmpeg
+          sudo chmod +x /usr/local/bin/ffmpeg
+
+          # 2. Download standalone static yt-dlp binary (directly executable)
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod +x /usr/local/bin/yt-dlp
+
+          # 3. Quick sanity check verification
+          ffmpeg -version | head -n 1
+          yt-dlp --version
 
       - name: Fetch Next Video URL & Title
         id: fetch_url
