@@ -34,12 +34,13 @@ jobs:
 
       - name: Install Static FFmpeg & yt-dlp
         run: |
-          # 1. Download static precompiled FFmpeg binary (bypasses broken apt and broken actions)
-          curl -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin/ ffmpeg-*-amd64-static/ffmpeg ffmpeg-*-amd64-static/ffprobe
-          sudo chmod a+rx /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
-
-          # 2. Install yt-dlp
-          python3 -m pip install --upgrade --no-cache-dir yt-dlp
+          python3 -m pip install --upgrade --no-cache-dir yt-dlp static-ffmpeg
+          # Expose static-ffmpeg binaries directly to system PATH
+          static_ffmpeg -y
+          FFMPEG_DIR=$(python3 -c "import static_ffmpeg; print(static_ffmpeg.run._get_or_download()[0])")
+          echo "$FFMPEG_DIR" >> $GITHUB_PATH
+          sudo ln -sf "$FFMPEG_DIR/ffmpeg" /usr/local/bin/ffmpeg
+          sudo ln -sf "$FFMPEG_DIR/ffprobe" /usr/local/bin/ffprobe
 
       - name: Fetch Next Video URL & Title
         id: fetch_url
